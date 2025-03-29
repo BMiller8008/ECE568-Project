@@ -65,12 +65,18 @@ class MPU6050(object):
         # Checks any erorr would happen with I2C communication protocol.
         self._failCount = 0
         self._terminatingFailCount = 0
-        
+
+        # Initializing the I2C method for Feather V2
+        # Pin assignment:
+        # SCL -> GPIO 20
+        # SDA -> GPIO 22
+        self.i2c = SoftI2C(scl=Pin(20), sda=Pin(22), freq=100000)
+
         # Initializing the I2C method for ESP32
         # Pin assignment:
         # SCL -> GPIO 22
         # SDA -> GPIO 21
-        self.i2c = SoftI2C(scl=Pin(22), sda=Pin(21), freq=100000)
+        # self.i2c = SoftI2C(scl=Pin(22), sda=Pin(21), freq=100000)
         
         # Initializing the I2C method for ESP8266
         # Pin assignment:
