@@ -4,7 +4,6 @@ import time
 
 # # Intialize GPS EN pin as GPIO26 on ESP32
 gps_en = Pin(26, Pin.OUT)
-gps_en.value(1)
 
 # Initialize GPS Parser Module
 gps = MicropyGPS()
