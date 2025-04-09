@@ -5,12 +5,8 @@
 #send enable signal to wifi server side, to make sure it only gets updated when EN is on 
 # make this an interrupt function, so that it can be called when the accelerometer is updated, have it call the accelerometer every 
 
-from ./accelerometer import *
+
 from ./GPS import *
-from machine import Pin
-import time
-
-
 
 from accelerometer import get_acceleration  
 from machine import Pin
