@@ -1,89 +1,116 @@
-#recieve the accelearation info from the accelerometer (x,y,z) 
-#calculate current speed ( Vnew = Vold + a * dt) for each direction (x,y,z)
-#calculate the magnitude of the speed (V = sqrt(Vx^2 + Vy^2 + Vz^2))
-#check if the abs speed is greater than 1.7 m/s, if so, send enable signal to GPS (our enabler is A0/GPIO 26 pin)
-#send enable signal to wifi server side, to make sure it only gets updated when EN is on 
-# make this an interrupt function, so that it can be called when the accelerometer is updated, have it call the accelerometer every 
-
-from machine import UART, Pin
-from micropyGPS import MicropyGPS
-from accelerometer import get_acceleration  
-from machine import Pin
 import time
+from machine import UART, Pin
+import socket
+import network
+from micropyGPS import MicropyGPS
+from accelerometer import get_acceleration
+import _thread  # for multicore support on ESP32
+import esp32
 
+# Global shared variable (must be protected if writing from both threads)
+current_speed = 0
+speed_lock = _thread.allocate_lock()
 
-def main():
-    
-    Vx = 0.0
-    Vy = 0.0
-    Vz = 0.0
-    threshold = 1.7  # m/s
-    dt = 0.1  # time interval in seconds (50 ms)
-    
-    en_pin = Pin(26, Pin.OUT)  # GPIO26 (A0) as GPS enable output
+# Constants
+threshold = 1.7  # m/s
+dt = 0.1  # interval in seconds
+
+# Setup pin
+en_pin = Pin(26, Pin.OUT)
+
+# WiFi details
+SSID = "iPhone1"
+PASSWORD = "c1fp7v272c0y2"
+ADDR = ("192.168.4.1", 1234)
+RECV_BUFFER_SIZE = 1024
+
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    if not wlan.isconnected():
+        wlan.connect(SSID, PASSWORD)
+        while not wlan.isconnected():
+            time.sleep(0.5)
+    print("Connected to WiFi:", wlan.ifconfig()[0])
+
+def send_to_host(coords, time_data):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(ADDR)
+        msg = f"UPDATE {coords[0]} {coords[1]} {time_data[0]} {time_data[1]}\n"
+        s.send(msg.encode())
+        s.recv(RECV_BUFFER_SIZE)
+        s.close()
+        print("Data sent to host.")
+    except Exception as e:
+        print("Send failed:", e)
+
+def gps_wifi_thread():
+    gps = MicropyGPS()
+    uart = UART(2, baudrate=9600, tx=8, rx=7, timeout=10)
+
+    #connect_wifi()
 
     while True:
-        
-        # Get acceleration values (in m/s²)
-        ax, ay, az, G = get_acceleration()
-        print("x:",ax)
-        print("y:",ay)
-        print ("G:", G)
+        speed_lock.acquire()
+        local_speed = current_speed
+        speed_lock.release()
 
-        # Speed integration
-        
-        ax = ax if abs(ax) > 1 else 0
-        ay = ay if abs(ay) > 1 else 0
-       
-        
-        Vx += ax * dt
-        Vx = Vx * 0.95
-        Vx = Vx if abs(Vx) > 0.1 else 0
-        
-        Vy += ay * dt
-        Vy = Vy * 0.95
-        Vy = Vy if abs(Vy) > 0.1 else 0
-
-        # Magnitude of speed vector
-        V = (Vx**2 + Vy**2)**0.5
-  
-    
-        print("Current Speed:", V)
-
-        # Enable GPS if speed exceeds threshold
-        if V > threshold:
+        if local_speed > threshold:
             en_pin.on()
-            
             print("GPS Enabled")
-            # Initialize GPS Parser Module
-            gps = MicropyGPS()
 
-            # UART2 on GPIO7 (RX) and GPIO8 (TX)
-            uart = UART(2, baudrate=9600, tx=8, rx=7, timeout=10)
-            time.sleep(1)
             if uart.any():
-                line = uart.readline()
-                if line:
-                    try:
+                try:
+                    line = uart.readline()
+                    if line:
                         line = line.decode('utf-8').strip()
                         for char in line:
                             sentence_type = gps.update(char)
                         if sentence_type:
-                            formatted_coordinates = (gps.latitude, gps.longitude)
-                            speed = gps.speed_string('kph')
-                            print(formatted_coordinates, speed)
-                    except:
-                        print("FAIL")
-                        pass
-                
-                    
+                            coords = (gps.latitude, gps.longitude)
+                            #send_to_host(coords, (0, 0))
+                            print("GPS:", coords)
+                except:
+                    print("GPS parsing failed.")
         else:
             en_pin.off()
 
-            print("GPS Disabled")
+        time.sleep(1)  # reduce GPS polling frequency to save power
+
+def accel_thread():
+    global current_speed
+
+    Vx = Vy = 0.0
+
+    while True:
+        ax, ay, az, _ = get_acceleration()
+
+        ax = ax if abs(ax) > 1 else 0
+        ay = ay if abs(ay) > 1 else 0
+
+        Vx += ax * dt
+        Vx *= 0.95
+        Vx = Vx if abs(Vx) > 0.1 else 0
+
+        Vy += ay * dt
+        Vy *= 0.95
+        Vy = Vy if abs(Vy) > 0.1 else 0
+
+        speed = (Vx**2 + Vy**2)**0.5
+
+        speed_lock.acquire()
+        current_speed = speed
+        speed_lock.release()
+
+        print("Speed:", speed)
 
         time.sleep(dt)
 
-# Start main function
+# Main entry
+def main():
+    _thread.start_new_thread(gps_wifi_thread, ())  # Run on Core 0
+    accel_thread()  # Run on Core 1 (main)
+
 if __name__ == "__main__":
     main()

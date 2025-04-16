@@ -14,7 +14,7 @@ def get_acceleration():
     aX = accel["x"]
     aY = accel["y"]
     aZ = accel["z"]
-    print("x: " + str(aX) + " y: " + str(aY) + " z: " + str(aZ))
+    # print("x: " + str(aX) + " y: " + str(aY) + " z: " + str(aZ))
     
     #         # G-Force
     G = mpu.read_accel_abs(g=False) # read the absolute acceleration magnitude
